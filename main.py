@@ -1,6 +1,38 @@
 from fastapi import FastAPI, Path,HTTPException,Query
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field,computed_field
+from typing import Annotated,Literal
 import json
 app = FastAPI()     #create an object of FastAPI
+
+class Patient(BaseModel):
+    id: Annotated[str,Field(...,description="id of the patient", example="P001")]
+    name:Annotated[str,Field(...,description="Full name of the patient", example="John Doe")]  # Applying metadata to the field
+    city: Annotated[str,Field(...,description="City of the patient is living", example="New York")]
+    age: Annotated[int,Field(...,gt=0,lt=120,description="Age of the patient", example=30)]
+    gender: Annotated[str,Literal['male','female','other'],Field(...,description="gender of the patient")]
+    height: Annotated[float,Field(...,gt=0,description="Height of the patient in meters")]
+    weight:Annotated[float,Field(...,gt=0,description="Weight of the patient in kg")]
+
+    @computed_field
+    @property
+    def bmi(self) -> float:
+        """Calculate the Body Mass Index (BMI) of the patient."""
+        bmi = round(self.weight / (self.height ** 2), 2)
+        return bmi
+    
+    @computed_field
+    @property
+    def verdict(self) -> str:
+        """Provide a health verdict based on the BMI."""
+        if self.bmi < 18.5:
+            return "Underweight"
+        elif 18.5 <= self.bmi < 24.9:
+            return "Normal weight"
+        elif 25 <= self.bmi < 29.9:
+            return "Overweight"
+        else:
+            return "Obese"
 
 def load_data():
     with open("patient.json", "r") as f:  # Open the JSON file in read mode
@@ -8,6 +40,9 @@ def load_data():
         data = json.load(f)
     return data
 
+def save_data(data): #saving data to the json file
+    with open("patient.json", "w") as f:
+        json.dump(data, f, indent=4)
 
 @app.get("/") # This is the root endpoint like route
 
@@ -55,3 +90,18 @@ def sort_data(sort_by: str = Query(..., description="Sort on the basis of height
     return sorted_data
 
 #post endpoint to add a new patient
+
+@app.post('/create')
+def create_patient(patient: Patient):
+    data = load_data()
+
+    if patient.id in data:
+        raise HTTPException(status_code=400, detail="Patient with this ID already exists.")
+    
+    patient.model_dump(exclude='id')  # Convert Pydantic model to dict
+    data[patient.id] = patient.model_dump(exclude=['id'])
+    save_data(data)  # Save the updated data 
+
+    return JSONResponse(status_code=201, content={"message": "Patient created successfully", "patient_id": patient.id})
+    
+
